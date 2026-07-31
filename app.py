@@ -17,13 +17,11 @@ def init_connection():
 supabase = init_connection()
 
 # 3. Fetch Data
-@st.cache_data(ttl=600) # Caches the data for 10 mins so it's lightning fast
+@st.cache_data(ttl=600)
 def load_data():
-    # Grabs all data from your table
     response = supabase.table('match_events').select("*").execute()
     df = pd.DataFrame(response.data)
     
-    # Ensure our axes are numeric
     if not df.empty:
         df['match_minute'] = pd.to_numeric(df['match_minute'])
         df['impact_points'] = pd.to_numeric(df['impact_points'])
@@ -35,39 +33,86 @@ df = load_data()
 if df.empty:
     st.warning("No data found! Push some XML files through your Colab engine.")
 else:
-    # Sidebar for filtering
+    # --- SIDEBAR FILTERS ---
     st.sidebar.header("Dashboard Filters")
-    match_list = df['match_name'].unique().tolist()
-    selected_match = st.sidebar.selectbox("Select a Match", match_list)
     
-    # Filter the dataframe based on the dropdown
-    match_df = df[df['match_name'] == selected_match].copy()
+    # Competition Dropdown
+    comps = ["All"] + sorted(df['competition'].dropna().unique().tolist())
+    selected_comp = st.sidebar.selectbox("Competition", comps)
     
-    # --- THE UPGRADE: CUMULATIVE MOMENTUM ---
-    # 1. Sort chronologically (Crucial for running totals)
-    match_df = match_df.sort_values(by="match_minute")
+    # Filter by Competition first
+    comp_df = df if selected_comp == "All" else df[df['competition'] == selected_comp]
     
-    # 2. Calculate the running total of impact points for each team
-    match_df['cumulative_impact'] = match_df.groupby('team')['impact_points'].cumsum()
+    # Position Dropdown
+    positions = ["All"] + sorted(comp_df['position'].dropna().unique().tolist())
+    selected_pos = st.sidebar.selectbox("Position", positions)
     
-    # 3. Build the Stepped Line Chart
-    st.subheader(f"Match Momentum: {selected_match}")
+    # --- DASHBOARD TABS ---
+    tab1, tab2 = st.tabs(["⏱️ Match Timeline", "📊 Player Leaderboards"])
     
-    fig = px.line(
-        match_df, 
-        x="match_minute", 
-        y="cumulative_impact", 
-        color="team",
-        line_shape="hv", # Creates the professional "stepped" look
-        hover_data=["player", "action", "impact_points"],
-        title="Team Momentum (Running Total of Impact Points)",
-        labels={"match_minute": "Match Minute", "cumulative_impact": "Cumulative Impact"}
-    )
-    
-    # Make the chart look professional
-    fig.update_layout(xaxis=dict(tickmode='linear', dtick=10)) 
-    st.plotly_chart(fig, use_container_width=True)
-    
-    # Show the raw data below
-    st.subheader("Raw Event Data")
-    st.dataframe(match_df)
+    # === TAB 1: 80-MINUTE MATCH TIMELINE ===
+    with tab1:
+        st.subheader("Match Momentum")
+        matches = comp_df['match_name'].unique().tolist()
+        
+        if not matches:
+            st.info("No matches found for the selected competition.")
+        else:
+            selected_match = st.selectbox("Select a Match", matches)
+            match_df = comp_df[comp_df['match_name'] == selected_match].copy()
+            
+            # Sort and calculate running totals
+            match_df = match_df.sort_values(by="match_minute")
+            match_df['cumulative_impact'] = match_df.groupby('team')['impact_points'].cumsum()
+            
+            # Build Stepped Line Chart
+            fig_timeline = px.line(
+                match_df, 
+                x="match_minute", 
+                y="cumulative_impact", 
+                color="team",
+                line_shape="hv", 
+                hover_data=["player", "action", "impact_points"],
+                labels={"match_minute": "Match Minute", "cumulative_impact": "Cumulative Impact"}
+            )
+            
+            # --- THE 80 MINUTE FIX ---
+            # This forces the chart to always draw from 0 to 80, placing a tick every 10 mins
+            fig_timeline.update_layout(
+                xaxis=dict(range=[0, 80], tickmode='linear', dtick=10)
+            ) 
+            st.plotly_chart(fig_timeline, use_container_width=True)
+            
+            with st.expander("View Raw Match Data"):
+                st.dataframe(match_df)
+
+    # === TAB 2: PLAYER LEADERBOARDS ===
+    with tab2:
+        st.subheader("Positional Impact Rankings")
+        st.write(f"Comparing players across: **{selected_comp}** | Position: **{selected_pos}**")
+        
+        # Apply the position filter for the leaderboard
+        lead_df = comp_df if selected_pos == "All" else comp_df[comp_df['position'] == selected_pos]
+        
+        if lead_df.empty:
+            st.warning("No data found for this specific position in this competition.")
+        else:
+            # Add up every player's total impact points
+            player_totals = lead_df.groupby(['player', 'team', 'position'])['impact_points'].sum().reset_index()
+            # Sort them from highest to lowest
+            player_totals = player_totals.sort_values(by="impact_points", ascending=False)
+            
+            # Draw the Bar Chart (Showing the Top 20 players)
+            fig_bar = px.bar(
+                player_totals.head(20), 
+                x="player", 
+                y="impact_points", 
+                color="team",
+                hover_data=["position"],
+                title="Top 20 Players by Total Impact",
+                labels={"player": "Player", "impact_points": "Total Impact Points"}
+            )
+            st.plotly_chart(fig_bar, use_container_width=True)
+            
+            with st.expander("View Full Leaderboard Data"):
+                st.dataframe(player_totals)
