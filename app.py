@@ -32,28 +32,28 @@ def load_data():
 df = load_data()
 
 # 4. Build the Dashboard
-if df.empty:
-    st.warning("No data found! Push some XML files through your Colab engine.")
-else:
-    # Sidebar for filtering
-    st.sidebar.header("Dashboard Filters")
-    match_list = df['match_name'].unique().tolist()
-    selected_match = st.sidebar.selectbox("Select a Match", match_list)
+# Filter the dataframe based on the dropdown
+    match_df = df[df['match_name'] == selected_match].copy()
     
-    # Filter the dataframe based on the dropdown
-    match_df = df[df['match_name'] == selected_match]
+    # --- THE UPGRADE: CUMULATIVE MOMENTUM ---
+    # 1. Sort chronologically (Crucial for running totals)
+    match_df = match_df.sort_values(by="match_minute")
     
-    # Build the Timeline Chart (Using Match Minute!)
-    st.subheader(f"Match Timeline: {selected_match}")
+    # 2. Calculate the running total of impact points for each team
+    match_df['cumulative_impact'] = match_df.groupby('team')['impact_points'].cumsum()
     
-    fig = px.scatter(
+    # 3. Build the Stepped Line Chart
+    st.subheader(f"Match Momentum: {selected_match}")
+    
+    fig = px.line(
         match_df, 
         x="match_minute", 
-        y="impact_points", 
+        y="cumulative_impact", 
         color="team",
-        hover_data=["player", "action", "match_minute", "impact_points"],
-        title="Impact Points Over Time",
-        labels={"match_minute": "Match Minute", "impact_points": "Impact Points"}
+        line_shape="hv", # Creates the professional "stepped" look
+        hover_data=["player", "action", "impact_points"],
+        title="Team Momentum (Running Total of Impact Points)",
+        labels={"match_minute": "Match Minute", "cumulative_impact": "Cumulative Impact"}
     )
     
     # Make the chart look professional
