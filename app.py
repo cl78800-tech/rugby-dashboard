@@ -32,7 +32,15 @@ def load_data():
 df = load_data()
 
 # 4. Build the Dashboard
-# Filter the dataframe based on the dropdown
+if df.empty:
+    st.warning("No data found! Push some XML files through your Colab engine.")
+else:
+    # Sidebar for filtering
+    st.sidebar.header("Dashboard Filters")
+    match_list = df['match_name'].unique().tolist()
+    selected_match = st.sidebar.selectbox("Select a Match", match_list)
+    
+    # Filter the dataframe based on the dropdown
     match_df = df[df['match_name'] == selected_match].copy()
     
     # --- THE UPGRADE: CUMULATIVE MOMENTUM ---
