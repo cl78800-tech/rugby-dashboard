@@ -23,7 +23,8 @@ def load_data():
     df = pd.DataFrame(response.data)
     
     if not df.empty:
-        df['match_minute'] = pd.to_numeric(df['match_minute'])
+        # We ensure the raw video timestamp is treated as a number
+        df['timestamp_vidref'] = pd.to_numeric(df['timestamp_vidref'])
         df['impact_points'] = pd.to_numeric(df['impact_points'])
     return df
 
@@ -50,9 +51,9 @@ else:
     # --- DASHBOARD TABS ---
     tab1, tab2 = st.tabs(["⏱️ Match Timeline", "📊 Player Leaderboards"])
     
-    # === TAB 1: 80-MINUTE MATCH TIMELINE ===
+    # === TAB 1: RAW MATCH TIMELINE ===
     with tab1:
-        st.subheader("Match Momentum")
+        st.subheader("Match Momentum (Raw Timeline)")
         matches = comp_df['match_name'].unique().tolist()
         
         if not matches:
@@ -61,26 +62,21 @@ else:
             selected_match = st.selectbox("Select a Match", matches)
             match_df = comp_df[comp_df['match_name'] == selected_match].copy()
             
-            # Sort and calculate running totals
-            match_df = match_df.sort_values(by="match_minute")
+            # --- THE REVERT: Sort chronologically by the bulletproof raw timestamp ---
+            match_df = match_df.sort_values(by="timestamp_vidref")
             match_df['cumulative_impact'] = match_df.groupby('team')['impact_points'].cumsum()
             
             # Build Stepped Line Chart
             fig_timeline = px.line(
                 match_df, 
-                x="match_minute", 
+                x="timestamp_vidref",  # Swapped back to raw video frames
                 y="cumulative_impact", 
                 color="team",
                 line_shape="hv", 
                 hover_data=["player", "action", "impact_points"],
-                labels={"match_minute": "Match Minute", "cumulative_impact": "Cumulative Impact"}
+                labels={"timestamp_vidref": "Raw Video Timeline", "cumulative_impact": "Cumulative Impact"}
             )
             
-            # --- THE 80 MINUTE FIX ---
-            # This forces the chart to always draw from 0 to 80, placing a tick every 10 mins
-            fig_timeline.update_layout(
-                xaxis=dict(range=[0, 80], tickmode='linear', dtick=10)
-            ) 
             st.plotly_chart(fig_timeline, use_container_width=True)
             
             with st.expander("View Raw Match Data"):
